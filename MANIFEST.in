@@ -1,0 +1,5 @@
+include LICENSE
+include README.md
+recursive-include wa_auto_call *.json
+recursive-include wa_auto_call *.py
+recursive-include wa_auto_call *.js

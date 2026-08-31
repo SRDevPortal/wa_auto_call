@@ -1,0 +1,29 @@
+[project]
+name = "wa_auto_call"
+version = "0.0.1"
+description = "Delayed WhatsApp customer-message triggers for WA Chat Hub"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "SRIAAS", email = "webdevelopersriaas@gmail.com" }
+]
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["wa_auto_call*"]
+
+[tool.bench.frappe-dependencies]
+frappe = ">=15.0.0,<16.0.0"
+wa_chat_hub = ">=0.0.1"
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
