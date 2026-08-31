@@ -100,6 +100,7 @@
   },
   {
    "depends_on": "eval:doc.target_type==='Frappe Webhook'",
+   "description": "The webhook can target Chat Conversation, Chat Message, or a document linked on the conversation such as CRM Lead or Patient.",
    "fieldname": "webhook",
    "fieldtype": "Link",
    "label": "Webhook",

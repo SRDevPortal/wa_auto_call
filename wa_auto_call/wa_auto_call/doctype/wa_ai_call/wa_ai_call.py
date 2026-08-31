@@ -28,9 +28,8 @@ class WAAICall(Document):
         if not self.webhook:
             frappe.throw(_("Webhook is required."))
 
-        webhook_doctype = frappe.db.get_value("Webhook", self.webhook, "webhook_doctype")
-        if webhook_doctype not in {"Chat Conversation", "Chat Message"}:
-            frappe.throw(_("Webhook DocType must be Chat Conversation or Chat Message."))
+        if not frappe.db.exists("Webhook", self.webhook):
+            frappe.throw(_("Webhook {0} was not found.").format(self.webhook))
 
     def _validate_server_script_api(self) -> None:
         api_method = (self.server_script_api_method or "").strip()

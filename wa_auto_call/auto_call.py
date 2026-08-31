@@ -222,7 +222,7 @@ def _run_webhook(trigger, conversation_doc, message_doc) -> dict[str, Any]:
     if not cint(webhook.enabled):
         frappe.throw(f"Webhook {webhook.name} is disabled.")
 
-    target_doc = conversation_doc if webhook.webhook_doctype == "Chat Conversation" else message_doc
+    target_doc = _target_doc_for_webhook(webhook.webhook_doctype, conversation_doc, message_doc)
     from frappe.integrations.doctype.webhook.webhook import enqueue_webhook
 
     enqueue_webhook(target_doc, webhook)
@@ -232,6 +232,34 @@ def _run_webhook(trigger, conversation_doc, message_doc) -> dict[str, Any]:
         "webhook_doctype": webhook.webhook_doctype,
         "target_doc": target_doc.name,
     }
+
+
+def _target_doc_for_webhook(webhook_doctype: str, conversation_doc, message_doc):
+    if webhook_doctype == "Chat Conversation":
+        return conversation_doc
+    if webhook_doctype == "Chat Message":
+        return message_doc
+
+    reference_name = _linked_reference_name(conversation_doc, webhook_doctype)
+    if reference_name:
+        return frappe.get_doc(webhook_doctype, reference_name)
+
+    frappe.throw(
+        "Conversation {0} is not linked to a {1} document for this webhook.".format(
+            conversation_doc.name,
+            webhook_doctype,
+        )
+    )
+
+
+def _linked_reference_name(conversation_doc, doctype: str) -> str | None:
+    if doctype == "CRM Lead" and getattr(conversation_doc, "linked_crm_lead", None):
+        return conversation_doc.linked_crm_lead
+    if doctype == "Patient" and getattr(conversation_doc, "linked_patient", None):
+        return conversation_doc.linked_patient
+    if getattr(conversation_doc, "linked_reference_doctype", None) == doctype:
+        return getattr(conversation_doc, "linked_reference_name", None)
+    return None
 
 
 def _run_server_script_api(trigger, conversation_doc, message_doc):
