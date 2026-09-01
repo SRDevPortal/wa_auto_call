@@ -85,13 +85,15 @@ def process_due_auto_call_triggers() -> None:
     for trigger in frappe.db.get_all(
         "WA AI Call",
         filters={"is_active": 1},
-        fields=["name", "channel_account", "delay_seconds"],
+        fields=["name", "creation", "channel_account", "delay_seconds"],
         order_by="priority desc, modified desc",
     ):
         cutoff = add_to_date(now_datetime(), seconds=-max(1, cint(trigger.delay_seconds)))
-        filters: dict[str, Any] = {"last_customer_message_at": ["<=", cutoff]}
+        filters: list[list[Any]] = [["last_customer_message_at", "<=", cutoff]]
+        if trigger.creation:
+            filters.append(["last_customer_message_at", ">=", trigger.creation])
         if trigger.channel_account:
-            filters["channel_account"] = trigger.channel_account
+            filters.append(["channel_account", "=", trigger.channel_account])
 
         conversations = frappe.db.get_all(
             "Chat Conversation",
@@ -247,12 +249,6 @@ def _condition_matches(trigger, conversation_doc, message_doc) -> bool:
             },
         )
     )
-
-
-def _is_once_per_conversation(trigger) -> bool:
-    return (
-        getattr(trigger, "trigger_limit", None) or LIMIT_ONCE_PER_CONVERSATION
-    ) == LIMIT_ONCE_PER_CONVERSATION
 
 
 def _has_successful_run(trigger_name: str, conversation: str, message: str) -> bool:
