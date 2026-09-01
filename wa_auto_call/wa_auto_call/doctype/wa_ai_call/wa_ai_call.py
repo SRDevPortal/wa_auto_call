@@ -5,6 +5,9 @@ from frappe import _
 from frappe.model.document import Document
 from frappe.utils import cint
 
+DEFAULT_TRIGGER_LIMIT = "Once Per Conversation"
+TRIGGER_LIMITS = {DEFAULT_TRIGGER_LIMIT, "Every Qualified Customer Message"}
+
 
 class WAAICall(Document):
     def validate(self):
@@ -14,6 +17,11 @@ class WAAICall(Document):
 
         if self.queue not in {"short", "default", "long"}:
             frappe.throw(_("Queue must be short, default, or long."))
+
+        trigger_limit = getattr(self, "trigger_limit", None) or DEFAULT_TRIGGER_LIMIT
+        if trigger_limit not in TRIGGER_LIMITS:
+            frappe.throw(_("Trigger Limit must be Once Per Conversation or Every Qualified Customer Message."))
+        self.trigger_limit = trigger_limit
 
         if self.target_type == "Frappe Webhook":
             self.server_script_api_method = None

@@ -22,6 +22,8 @@ CUSTOMER_SENDER_TYPES = {"", "Customer"}
 INBOUND_DIRECTION = "Inbound"
 TARGET_WEBHOOK = "Frappe Webhook"
 TARGET_SERVER_SCRIPT = "Server Script API"
+LIMIT_ONCE_PER_CONVERSATION = "Once Per Conversation"
+LIMIT_EVERY_QUALIFIED_CUSTOMER_MESSAGE = "Every Qualified Customer Message"
 
 
 def on_chat_message_after_insert(doc, method=None) -> None:
@@ -94,6 +96,10 @@ def process_auto_call_trigger(trigger_name: str, conversation: str, message: str
     latest_customer_message = _get_latest_customer_message(conversation)
     if latest_customer_message != message:
         _record_skip(trigger, conversation, message, "A newer customer message exists.")
+        return
+
+    if _is_once_per_conversation(trigger) and _has_successful_conversation_run(trigger.name, conversation):
+        _record_skip(trigger, conversation, message, "Trigger limit already reached for this conversation.")
         return
 
     delay_seconds = cint(trigger.delay_seconds)
@@ -204,6 +210,29 @@ def _condition_matches(trigger, conversation_doc, message_doc) -> bool:
                 "conversation": conversation_doc,
                 "message": message_doc,
                 "utils": get_safe_globals().get("frappe").get("utils"),
+            },
+        )
+    )
+
+
+def _is_once_per_conversation(trigger) -> bool:
+    return (
+        getattr(trigger, "trigger_limit", None) or LIMIT_ONCE_PER_CONVERSATION
+    ) == LIMIT_ONCE_PER_CONVERSATION
+
+
+def _has_successful_conversation_run(trigger_name: str, conversation: str) -> bool:
+    if not frappe.db.exists("DocType", "Chat Action Log"):
+        return False
+
+    return bool(
+        frappe.db.exists(
+            "Chat Action Log",
+            {
+                "conversation": conversation,
+                "action_type": "Webhook",
+                "action_name": trigger_name,
+                "status": "Success",
             },
         )
     )
