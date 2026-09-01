@@ -34,7 +34,7 @@ def on_chat_message_after_insert(doc, method=None) -> None:
     channel_account = None
     if doc.conversation:
         channel_account = frappe.db.get_value("Chat Conversation", doc.conversation, "channel_account")
-    schedule_auto_call_triggers(doc.conversation, doc.name, channel_account)
+    schedule_auto_call_triggers(_docname(doc.conversation), _docname(doc.name), channel_account)
 
 
 def schedule_auto_call_triggers(
@@ -103,17 +103,20 @@ def process_due_auto_call_triggers() -> None:
             limit=SCHEDULER_CONVERSATION_LIMIT,
         )
         for conversation in conversations:
-            message = _get_latest_customer_message(conversation.name)
+            conversation_name = _docname(conversation.name)
+            message = _get_latest_customer_message(conversation_name)
             if not message:
                 continue
-            if _has_completed_attempt(trigger.name, conversation.name, message):
+            if _has_completed_attempt(trigger.name, conversation_name, message):
                 continue
-            if _has_successful_run(trigger.name, conversation.name, message):
+            if _has_successful_run(trigger.name, conversation_name, message):
                 continue
-            process_auto_call_trigger(trigger.name, conversation.name, message)
+            process_auto_call_trigger(trigger.name, conversation_name, message)
 
 
 def process_auto_call_trigger(trigger_name: str, conversation: str, message: str) -> None:
+    conversation = _docname(conversation)
+    message = _docname(message)
     trigger = frappe.get_doc("WA AI Call", trigger_name)
     if not cint(trigger.is_active):
         _record_skip(trigger, conversation, message, "Trigger is inactive.")
@@ -122,7 +125,7 @@ def process_auto_call_trigger(trigger_name: str, conversation: str, message: str
     conversation_doc = frappe.get_doc("Chat Conversation", conversation)
     message_doc = frappe.get_doc("Chat Message", message)
 
-    if message_doc.conversation != conversation:
+    if _docname(message_doc.conversation) != conversation:
         _record_skip(trigger, conversation, message, "Message does not belong to conversation.")
         return
     if message_doc.direction != INBOUND_DIRECTION or (message_doc.sender_type or "Customer") != "Customer":
@@ -220,6 +223,10 @@ def _build_job_id(trigger_name: str, conversation: str, message: str) -> str:
     return f"wa_ai_call_{digest}"
 
 
+def _docname(value) -> str:
+    return str(value or "")
+
+
 def _get_latest_customer_message(conversation: str) -> str | None:
     rows = frappe.db.get_all(
         "Chat Message",
@@ -230,7 +237,7 @@ def _get_latest_customer_message(conversation: str) -> str | None:
     )
     for row in rows:
         if (row.sender_type or "Customer") in CUSTOMER_SENDER_TYPES:
-            return row.name
+            return _docname(row.name)
     return None
 
 
