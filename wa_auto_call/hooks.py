@@ -15,3 +15,11 @@ doc_events = {
         "after_insert": "wa_auto_call.auto_call.on_chat_message_after_insert",
     },
 }
+
+scheduler_events = {
+    "cron": {
+        "* * * * *": [
+            "wa_auto_call.auto_call.process_due_auto_call_triggers",
+        ],
+    },
+}

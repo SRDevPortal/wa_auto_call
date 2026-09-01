@@ -6,7 +6,7 @@ from datetime import timedelta
 from typing import Any
 
 import frappe
-from frappe.utils import cint, now_datetime, time_diff_in_seconds
+from frappe.utils import add_to_date, cint, now_datetime, time_diff_in_seconds
 from frappe.utils.background_jobs import (
     RQ_JOB_FAILURE_TTL,
     RQ_RESULTS_TTL,
@@ -24,6 +24,7 @@ TARGET_WEBHOOK = "Frappe Webhook"
 TARGET_SERVER_SCRIPT = "Server Script API"
 LIMIT_ONCE_PER_CONVERSATION = "Once Per Conversation"
 LIMIT_EVERY_QUALIFIED_CUSTOMER_MESSAGE = "Every Qualified Customer Message"
+SCHEDULER_CONVERSATION_LIMIT = 200
 
 
 def on_chat_message_after_insert(doc, method=None) -> None:
@@ -77,6 +78,39 @@ def schedule_auto_call_triggers(
         )
 
 
+def process_due_auto_call_triggers() -> None:
+    if not frappe.db.exists("DocType", "WA AI Call"):
+        return
+
+    for trigger in frappe.db.get_all(
+        "WA AI Call",
+        filters={"is_active": 1},
+        fields=["name", "channel_account", "delay_seconds"],
+        order_by="priority desc, modified desc",
+    ):
+        cutoff = add_to_date(now_datetime(), seconds=-max(1, cint(trigger.delay_seconds)))
+        filters: dict[str, Any] = {"last_customer_message_at": ["<=", cutoff]}
+        if trigger.channel_account:
+            filters["channel_account"] = trigger.channel_account
+
+        conversations = frappe.db.get_all(
+            "Chat Conversation",
+            filters=filters,
+            fields=["name"],
+            order_by="last_customer_message_at asc",
+            limit=SCHEDULER_CONVERSATION_LIMIT,
+        )
+        for conversation in conversations:
+            message = _get_latest_customer_message(conversation.name)
+            if not message:
+                continue
+            if _has_completed_attempt(trigger.name, conversation.name, message):
+                continue
+            if _has_successful_run(trigger.name, conversation.name, message):
+                continue
+            process_auto_call_trigger(trigger.name, conversation.name, message)
+
+
 def process_auto_call_trigger(trigger_name: str, conversation: str, message: str) -> None:
     trigger = frappe.get_doc("WA AI Call", trigger_name)
     if not cint(trigger.is_active):
@@ -98,7 +132,7 @@ def process_auto_call_trigger(trigger_name: str, conversation: str, message: str
         _record_skip(trigger, conversation, message, "A newer customer message exists.")
         return
 
-    if _is_once_per_conversation(trigger) and _has_successful_conversation_run(trigger.name, conversation):
+    if _has_successful_run(trigger.name, conversation, message):
         _record_skip(trigger, conversation, message, "Trigger limit already reached for this conversation.")
         return
 
@@ -221,7 +255,24 @@ def _is_once_per_conversation(trigger) -> bool:
     ) == LIMIT_ONCE_PER_CONVERSATION
 
 
-def _has_successful_conversation_run(trigger_name: str, conversation: str) -> bool:
+def _has_successful_run(trigger_name: str, conversation: str, message: str) -> bool:
+    if not frappe.db.exists("DocType", "Chat Action Log"):
+        return False
+
+    filters = {
+        "conversation": conversation,
+        "action_type": "Webhook",
+        "action_name": trigger_name,
+        "status": "Success",
+    }
+    trigger_limit = frappe.db.get_value("WA AI Call", trigger_name, "trigger_limit") or LIMIT_ONCE_PER_CONVERSATION
+    if trigger_limit == LIMIT_EVERY_QUALIFIED_CUSTOMER_MESSAGE:
+        filters["reference_name"] = message
+
+    return bool(frappe.db.exists("Chat Action Log", filters))
+
+
+def _has_completed_attempt(trigger_name: str, conversation: str, message: str) -> bool:
     if not frappe.db.exists("DocType", "Chat Action Log"):
         return False
 
@@ -232,7 +283,8 @@ def _has_successful_conversation_run(trigger_name: str, conversation: str) -> bo
                 "conversation": conversation,
                 "action_type": "Webhook",
                 "action_name": trigger_name,
-                "status": "Success",
+                "reference_name": message,
+                "status": ["in", ["Success", "Failed"]],
             },
         )
     )
