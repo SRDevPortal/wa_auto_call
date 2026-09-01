@@ -336,11 +336,60 @@ def _target_doc_for_webhook(webhook_doctype: str, conversation_doc, message_doc)
 def _linked_reference_name(conversation_doc, doctype: str) -> str | None:
     if doctype == "CRM Lead" and getattr(conversation_doc, "linked_crm_lead", None):
         return conversation_doc.linked_crm_lead
+    if doctype == "CRM Lead":
+        return _find_crm_lead_for_conversation(conversation_doc)
     if doctype == "Patient" and getattr(conversation_doc, "linked_patient", None):
         return conversation_doc.linked_patient
     if getattr(conversation_doc, "linked_reference_doctype", None) == doctype:
         return getattr(conversation_doc, "linked_reference_name", None)
     return None
+
+
+def _find_crm_lead_for_conversation(conversation_doc) -> str | None:
+    if not frappe.db.exists("DocType", "CRM Lead"):
+        return None
+
+    numbers = _conversation_phone_numbers(conversation_doc)
+    if not numbers:
+        return None
+
+    lead_meta = frappe.get_meta("CRM Lead")
+    fields = [
+        field
+        for field in ["vobiz_normalized_phone", "mobile_no", "sr_mobile_norm", "phone"]
+        if lead_meta.has_field(field)
+    ]
+    for number in numbers:
+        for field in fields:
+            lead = frappe.db.get_value("CRM Lead", {field: number}, "name")
+            if lead:
+                return lead
+
+    return None
+
+
+def _conversation_phone_numbers(conversation_doc) -> list[str]:
+    numbers = []
+    contact = getattr(conversation_doc, "contact", None)
+    if contact:
+        numbers.append(str(contact))
+        if frappe.db.exists("DocType", "Chat Contact") and frappe.db.exists("Chat Contact", contact):
+            phone_number = frappe.db.get_value("Chat Contact", contact, "phone_number")
+            if phone_number:
+                numbers.append(str(phone_number))
+
+    normalized = []
+    for number in numbers:
+        digits = "".join(character for character in number if character.isdigit())
+        if not digits:
+            continue
+        normalized.append(digits)
+        if len(digits) == 10:
+            normalized.append(f"91{digits}")
+        elif digits.startswith("91") and len(digits) == 12:
+            normalized.append(digits[-10:])
+
+    return list(dict.fromkeys(normalized))
 
 
 def _run_server_script_api(trigger, conversation_doc, message_doc):
